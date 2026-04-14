@@ -1,0 +1,6 @@
+{
+  "name": "Orbit",
+  "description": "Real-time tracking of Near-Earth Objects (NEOs) using NASA's NeoWs API. Monitor asteroid approaches, sizes, and velocities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
