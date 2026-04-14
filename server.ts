@@ -3,7 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import axios from "axios";
-import { GoogleGenAI, Type } from "@google/genai";
+import Groq from "groq-sdk";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -11,8 +11,8 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize Gemini AI
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+// Initialize Groq AI
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || "" });
 
 async function startServer() {
   const app = express();
@@ -56,7 +56,7 @@ async function startServer() {
     }
   });
 
-  // Gemini AI endpoints
+  // Groq AI endpoints
   let lastStatus = "";
   let lastCounts = { asteroids: -1, hazardous: -1 };
 
@@ -69,33 +69,29 @@ async function startServer() {
         return res.json({ status: lastStatus });
       }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `You are Orbit AI, a planetary defense intelligence system. 
-        Current data: ${asteroidCount} near-Earth objects detected today, with ${hazardousCount} classified as potentially hazardous.
-        Provide a concise, professional, and slightly futuristic status report (max 30 words) for the mission control dashboard. 
-        Focus on the safety of Earth and the current surveillance status.`,
+      const response = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          {
+            role: "system",
+            content: "You are Orbit AI, a planetary defense intelligence system. Provide concise, professional, and slightly futuristic status reports for mission control."
+          },
+          {
+            role: "user",
+            content: `Current data: ${asteroidCount} near-Earth objects detected today, with ${hazardousCount} classified as potentially hazardous. Provide a status report (max 30 words) focusing on Earth's safety and surveillance status.`
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 100,
       });
 
-      const text = response.text || "Orbital corridor stable. Surveillance systems operating at 100% capacity. Monitoring all near-Earth trajectories.";
+      const text = response.choices[0]?.message?.content || "Orbital corridor stable. Surveillance systems operating at 100% capacity. Monitoring all near-Earth trajectories.";
       lastStatus = text;
       lastCounts = { asteroids: asteroidCount, hazardous: hazardousCount };
       
       res.json({ status: text });
     } catch (error: any) {
-      const errorString = JSON.stringify(error);
-      const isQuotaError = 
-        error?.status === "RESOURCE_EXHAUSTED" || 
-        error?.code === 429 || 
-        errorString.includes("RESOURCE_EXHAUSTED") ||
-        errorString.includes("429");
-
-      if (isQuotaError) {
-        console.warn("Gemini API quota exceeded. Using local fallback status.");
-      } else {
-        console.error("Gemini API Error:", error);
-      }
-      
+      console.error("Groq API Error:", error);
       res.json({ status: "Orbital corridor stable. Surveillance systems operating at 100% capacity. Monitoring all near-Earth trajectories." });
     }
   });
@@ -108,53 +104,63 @@ async function startServer() {
         return res.status(400).json({ error: "Prompt is required" });
       }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
-        contents: prompt,
-        config: {
-          systemInstruction: `You are Orbit AI, a specialized intelligence engine for planetary defense and orbital mechanics. 
-          Your goal is to provide deep, actionable insights based on NASA's Near-Earth Object data.
-          You explain asteroid trajectories, potential hazards, and space exploration topics.
-          Use a professional, scientific, and clear tone. Use Markdown for formatting.
-          Always prioritize safety and data-driven reasoning.`,
-          temperature: 0.7,
-        },
+      const response = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          {
+            role: "system",
+            content: `You are Orbit AI, a specialized intelligence engine for planetary defense and orbital mechanics. 
+            Your goal is to provide deep, actionable insights based on NASA's Near-Earth Object data.
+            You explain asteroid trajectories, potential hazards, and space exploration topics.
+            Use a professional, scientific, and clear tone. Use Markdown for formatting.
+            Always prioritize safety and data-driven reasoning.`
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 1024,
       });
 
-      res.json({ response: response.text });
+      res.json({ response: response.choices[0]?.message?.content || "I apologize, but I couldn't process that request." });
     } catch (error) {
-      console.error("Gemini API Error:", error);
+      console.error("Groq API Error:", error);
       res.status(500).json({ error: "Failed to get AI response" });
     }
   });
 
   app.get("/api/ai/market-pulse", async (req, res) => {
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: "Provide a JSON summary of the current top 4 global tech market trends for Q2 2026. Include sector name, sentiment score (0-100), and a brief 1-sentence outlook.",
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                sector: { type: Type.STRING },
-                sentiment: { type: Type.NUMBER },
-                outlook: { type: Type.STRING },
-                trend: { type: Type.STRING, enum: ["up", "down", "stable"] }
-              },
-              required: ["sector", "sentiment", "outlook", "trend"]
-            }
+      const response = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          {
+            role: "system",
+            content: "You are a tech market analyst. Respond only with valid JSON, no markdown formatting."
+          },
+          {
+            role: "user",
+            content: "Provide a JSON array of the current top 4 global tech market trends for Q2 2026. Each item should have: sector (string), sentiment (number 0-100), outlook (string, 1 sentence), trend (string: 'up', 'down', or 'stable'). Return only the JSON array, no other text."
           }
-        }
+        ],
+        temperature: 0.7,
+        max_tokens: 500,
       });
 
-      res.json(JSON.parse(response.text || "[]"));
+      const content = response.choices[0]?.message?.content || "[]";
+      // Remove markdown code blocks if present
+      const jsonContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      res.json(JSON.parse(jsonContent));
     } catch (error) {
-      console.error("Gemini API Error:", error);
-      res.json([]);
+      console.error("Groq API Error:", error);
+      res.json([
+        { sector: "AI/ML", sentiment: 85, outlook: "Strong growth in enterprise AI adoption.", trend: "up" },
+        { sector: "Quantum Computing", sentiment: 65, outlook: "Steady progress in quantum hardware.", trend: "up" },
+        { sector: "Cloud Infrastructure", sentiment: 75, outlook: "Continued expansion in hybrid cloud.", trend: "stable" },
+        { sector: "Cybersecurity", sentiment: 80, outlook: "Rising demand for zero-trust solutions.", trend: "up" }
+      ]);
     }
   });
 
