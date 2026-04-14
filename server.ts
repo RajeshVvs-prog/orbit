@@ -104,6 +104,9 @@ async function startServer() {
         return res.status(400).json({ error: "Prompt is required" });
       }
 
+      console.log("Groq API Key present:", !!process.env.GROQ_API_KEY);
+      console.log("Sending request to Groq...");
+
       const response = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
         messages: [
@@ -124,10 +127,12 @@ async function startServer() {
         max_tokens: 1024,
       });
 
+      console.log("Groq response received");
       res.json({ response: response.choices[0]?.message?.content || "I apologize, but I couldn't process that request." });
-    } catch (error) {
-      console.error("Groq API Error:", error);
-      res.status(500).json({ error: "Failed to get AI response" });
+    } catch (error: any) {
+      console.error("Groq API Error:", error.message);
+      console.error("Full error:", error);
+      res.status(500).json({ error: "Failed to get AI response", details: error.message });
     }
   });
 
